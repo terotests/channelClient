@@ -9,7 +9,7 @@ The client module for the channels
 
     var client = channelClient( "my/channel/myFork", socket, {
         auth : {
-            username : "usename",
+            username : "username",
             password : "password"
         }
     }).then( function() {
