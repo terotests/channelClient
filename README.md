@@ -128,6 +128,8 @@ The client module for the channels
 
 
 - [_classFactory](README.md#channelClient__classFactory)
+- [_createTransaction](README.md#channelClient__createTransaction)
+- [addCommand](README.md#channelClient_addCommand)
 
 
 
@@ -880,6 +882,59 @@ if(_instanceCache[id]) return _instanceCache[id];
 _instanceCache[id] = this;
 ```
 
+### <a name="channelClient__createTransaction"></a>channelClient::_createTransaction(t)
+
+
+```javascript
+
+// package to be sent to the server
+this._currentFrame = {
+    id : this.guid(),
+    version : 1,
+    from : this._data.getJournalLine(),
+    fail_tolastok : true,
+    commands : []
+};
+
+/*
+    data : {
+            id   : "t2",                   // unique ID for transaction
+            version : 1,                    // channel version
+            from : 1,                      // journal line to start the change
+            to   : 2,                      // the last line ( optionsl, I guess )
+            fail_tolastok : true,           // fail until last ok command
+            // fail_all : true,
+            commands : [
+                [4, "fill", "black", "blue", "id1"]
+            ]                               
+    }
+*/
+
+```
+
+### <a name="channelClient_addCommand"></a>channelClient::addCommand(cmd)
+
+Add command to next change frame to be sent over the network. TODO: validate the commands against the own channelObject, for example the previous value etc.
+```javascript
+/*
+    data : {
+            id   : "t2",                   // unique ID for transaction
+            version : 1,                    // channel version
+            from : 1,                      // journal line to start the change
+            to   : 2,                      // the last line ( optionsl, I guess )
+            fail_tolastok : true,           // fail until last ok command
+            // fail_all : true,
+            commands : [
+                [4, "fill", "black", "blue", "id1"]
+            ]                               
+    }
+*/
+
+if(this._currentFrame) {
+    this._currentFrame.commands.push( cmd );
+}
+```
+
 ### channelClient::constructor( channelId, socket, options )
 
 ```javascript
@@ -889,10 +944,32 @@ if(!channelId || !socket) return;
 this._channelId = channelId;
 this._socket = socket;
 this._options = options;
+this._changeFrames = [];
+this._pendingFrames = [];
 
 this._id = channelId + socket.getId();
-
 var me = this;
+
+
+later().every( 1/ 10, function() {
+    if(me._currentFrame && me._currentFrame.commands.length ) {
+        
+        var sent = me._currentFrame;
+        me._pendingFrames.push( me._currentFrame );
+        socket.send("channelCommand", {
+                        channelId : channelId,
+                        cmd : "changeFrame",
+                        data : me._currentFrame
+                }).then( function(resp) {
+                    if(resp.result) {
+                        var i = me._pendingFrames.indexOf( sent );
+                        me._pendingFrames.splice(i,1);
+                    }
+                });
+        me._createTransaction();
+    
+    }
+})
 
 socket.on("connect", function() {
     
@@ -907,7 +984,9 @@ socket.on("connect", function() {
                 
                 me._userId = resp.userId;
                 me._logged = true;
-            } 
+            } else {
+                return false;
+            }
             // ask to join the channel with this socket...
             return socket.send("requestChannel", {
                         channelId : channelId
@@ -915,7 +994,7 @@ socket.on("connect", function() {
         })
         .then( function(resp) {
             // this channel client has been connected to the server ok
-            if( resp.channelId == channelId ) {
+            if( resp && resp.channelId == channelId ) {
                 
                 me._connected = true;
                 // The next step: to load the channel information for the
@@ -933,7 +1012,6 @@ socket.on("connect", function() {
         })
         .then( function(resp) {
 
-            console.log(resp);
             
             if(resp) {
                 // the build tree is here now...
@@ -952,11 +1030,13 @@ socket.on("connect", function() {
                     list = resp.pop();
                 }                
                 me._data = chData;
-                console.log("--- the channel data is loaded ---- ");
-                console.log(chData);
-                console.log(JSON.stringify( chData.getData() ));
-                me.resolve(true);
                 
+                me._createTransaction();
+                
+                me.resolve({ result : true, channelId : channelId });
+                
+            } else {
+                me.resolve({ result : false, text : "Authorization or connection failed" });
             }
         })
     }
