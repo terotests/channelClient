@@ -119,14 +119,44 @@ if(_instanceCache[id]) return _instanceCache[id];
 _instanceCache[id] = this;
 ```
 
-### channelClient::constructor( channelId, channelData )
+### channelClient::constructor( channelId, socket, options )
 
 ```javascript
 
 this._channelId = channelId;
-this._channel = channelData;
+this._socket = socket;
+this._options = options;
 
-this._done = {};
+var me = this;
+
+socket.on("connect", function() {
+    
+    // Authenticate...
+    if(options.auth) {
+        socket.send("auth", {   userId :    options.auth.username, 
+                                password :  options.auth.password 
+                            }).then( function(resp) {
+            
+            if(resp.userId) {
+                me._userId = resp.userId;
+                me._logged = true;
+            } 
+            // ask to join the channel with this socket...
+            return socket.send("requestChannel", {
+                        channelId : channelId
+                });
+        })
+        .then( function(resp) {
+            // this channel client has been connected to the server ok
+            if( resp.channelId == channelId ) {
+                me._connected = true;
+                // The next step: to load the channel information for the
+                // local objects to consume
+            }
+        });
+    }
+});
+
 
 ```
         
