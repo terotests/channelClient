@@ -1045,17 +1045,17 @@
 
           // These incoming commands are problematic now...
           socket.on("frame_" + channelId, function (cmd) {
-            console.log("HEY! We got a change frame here...");
-            console.log(cmd);
-
-            debugger;
 
             var frame = cmd.data;
             var chData = me._data;
 
+            console.log("--- incoming to " + socket.getEnum() + "--- ");
+            console.log(JSON.stringify(cmd));
+
             // 1. check if we have not written anything to our change buffer, the easy case...
             var myLine = me._data.getJournalLine();
             if (myLine == frame.from) {
+              console.log("--- incoming ok --- ");
               frame.commands.forEach(function (cc) {
                 if (me._data.execCmd(me._transformCmdToNs(cc, myNamespace))) {
                   me._currentFrame.from++;
@@ -1063,7 +1063,7 @@
               });
               return; // easiest option
             } else {
-
+              console.log("--- incoming had problems --- ");
               // now the situation looks like this:
 
               // -- the from line is here ---
@@ -1088,6 +1088,8 @@
               // buffer and replace the situation with the server commands
               if (me._pendingFrames.length > 0) {
 
+                console.log("--- there were pending frames --- ");
+
                 // the pending frames have failed at least locally,
                 // we don't know what the server thinks
                 me._pendingFrames.forEach(function (f) {
@@ -1105,11 +1107,13 @@
                     break;
                   }
                 }
+                console.log("--- done --- ");
                 me._createTransaction(); // reset the current frame also
                 return; //
               }
 
               // CASE: no request outside, try to fix the buffer.
+              console.log("--- trying to run cmds  --- ");
 
               var rest = chData._journal.splice(frame.from, myLine - frame.from);
               var orig_pointer = chData._journalPointer;
@@ -1139,6 +1143,8 @@
                 // [our command]       <--- now we move these back to the end
                 // [our command]
 
+                console.log("--- run was ok  --- ");
+
                 // fix the current frame start index
                 me._currentFrame.from = chData._journalPointer;
 
@@ -1152,6 +1158,8 @@
                 // to the locat channelObject, so there is a good possibility that
                 // when the data is sent to the server, it will be accepted.
               } else {
+
+                console.log("--- run failed  --- ");
 
                 // inserting the new data has failed, because we have conflicting changes locall
 
@@ -1198,23 +1206,54 @@
 
               var sent = me._currentFrame;
               me._pendingFrames.push(me._currentFrame);
-
+              //console.log("--- about to send ----");
+              //console.log(JSON.stringify(me._currentFrame ));
               // TODO: how to resolve the change conflicts here...
               socket.send("channelCommand", {
                 channelId: channelId,
                 cmd: "changeFrame",
                 data: me._currentFrame
               }).then(function (resp) {
-                console.log("Command response ");
+
+                console.log("Command response " + socket.getEnum());
+                console.log(JSON.stringify(sent));
                 console.log(JSON.stringify(resp));
+
                 var i = me._pendingFrames.indexOf(sent);
                 me._pendingFrames.splice(i, 1);
-                if (resp.result) {} else {
+                if (resp.result) {
+                  console.log("---- ok ---- ");
+                  //console.log(JSON.stringify(sent));
+
+                  if (resp.correctLines && resp.correctLines.length) {
+
+                    var first = resp.correctStart;
+                    console.log("---- rolling back JUST IN CASE ---- ");
+                    me._data.reverseToLine(first);
+
+                    resp.correctLines.forEach(function (c) {
+                      //                                 me._data.execCmd(c);
+                      me._data.execCmd(me._transformCmdToNs(c, me._ns));
+                    });
+                  }
+                } else {
                   //  var frame = resp.data;
                   // check if we need to rollback changes
-                  if (resp.rollBack) {
-                    alert(resp.rollBackTo);
-                    me._data.reverseToLine(frame.rollBackTo);
+                  if (resp.correctLines && resp.correctLines.length) {
+
+                    var first = resp.correctStart;
+                    console.log("---- rolling back ---- ");
+                    me._data.reverseToLine(first);
+
+                    resp.correctLines.forEach(function (c) {
+                      //                                 me._data.execCmd(c);
+                      me._data.execCmd(me._transformCmdToNs(c, me._ns));
+                    });
+
+                    me._createTransaction();
+                  } else {
+                    console.log("---- failed, but no rollback ---- ");
+                    //console.log(JSON.stringify(sent));                          
                   }
                 }
               });
@@ -1243,12 +1282,10 @@
           */
 
           if (this._currentFrame) {
-            console.log(cmd);
             var cmdOut = this._transformCmdFromNs(cmd, this._ns);
             var cmdIn = this._transformCmdToNs(cmd, this._ns);
             // the local command is run immediately and if it passes then we add it to the frame
             if (this._data.execCmd(cmdIn)) {
-              console.log("About th send ", cmdOut);
               this._currentFrame.commands.push(cmdOut);
             }
           }
@@ -1365,11 +1402,9 @@
 
           var ns_id = this._idToNs(id, this._ns); // is this too slow?
           var obj = this._data._find(ns_id);
-          console.log("the set has found the obj", obj, ns_id);
           if (obj) {
             var old_value = obj.data[name];
             if (old_value != value) {
-              console.log("== set is sending ", value, old_value);
               this.addCommand([4, name, value, old_value, ns_id]);
             }
           }
