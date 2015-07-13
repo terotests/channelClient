@@ -1034,6 +1034,196 @@
         };
 
         /**
+         * This is the beef of almost everything, when a new frame comes around, what to do with it? There are many options what to do, we just have to pick one strategy.
+         * @param float socket
+         * @param float myNamespace
+         */
+        _myTrait_._incoming = function (socket, myNamespace) {
+
+          var me = this,
+              channelId = this._channelId;
+
+          // These incoming commands are problematic now...
+          socket.on("frame_" + channelId, function (cmd) {
+            console.log("HEY! We got a change frame here...");
+            console.log(cmd);
+
+            debugger;
+
+            var frame = cmd.data;
+            var chData = me._data;
+
+            // 1. check if we have not written anything to our change buffer, the easy case...
+            var myLine = me._data.getJournalLine();
+            if (myLine == frame.from) {
+              frame.commands.forEach(function (cc) {
+                if (me._data.execCmd(me._transformCmdToNs(cc, myNamespace))) {
+                  me._currentFrame.from++;
+                }
+              });
+              return; // easiest option
+            } else {
+
+              // now the situation looks like this:
+
+              // -- the from line is here ---
+              // [our command]
+              // [our command]
+              // -> and the new change frame wants to add these to our journal
+              // [frame command]
+              // [frame command]       
+
+              // the server is always right. we have to remove our commands from the
+              // journal if we want to keep the sync with the current version
+              // => the other option would be to create a new fork here, which requires
+              // another command policy - TODO later this.
+
+              // the commands have been applied to our UI using workers most likely and
+              // if changes are not conflicting, we might be able to keep them, so we
+              // collect the old commands to temporary list and see if they can be moved
+              // to the end of the journal later on
+
+              // first, check if there are pending frames, in this case we can no longer change the
+              // outgoing data and it's going to fail on the server most likely, so just revert the
+              // buffer and replace the situation with the server commands
+              if (me._pendingFrames.length > 0) {
+
+                // the pending frames have failed at least locally,
+                // we don't know what the server thinks
+                me._pendingFrames.forEach(function (f) {
+                  f._didFail = true; // ??? is this used at all ???
+                });
+
+                chData.reverseToLine(frame.from); // last known common position
+                for (var i = 0; i < frame.commands.length; i++) {
+                  var cmd = frame.commands[i];
+                  if (me._data.execCmd(me._transformCmdToNs(cmd, myNamespace))) {
+                    okCnt++;
+                  } else {
+                    // a problem: something is totally out of order now, what do do?
+                    console.error("syncing frames failed, buffer out of order");
+                    break;
+                  }
+                }
+                me._createTransaction(); // reset the current frame also
+                return; //
+              }
+
+              // CASE: no request outside, try to fix the buffer.
+
+              var rest = chData._journal.splice(frame.from, myLine - frame.from);
+              var orig_pointer = chData._journalPointer;
+
+              chData._journalPointer -= myLine - frame.from;
+
+              // then we we execute the commands to the channelObject to see if there is conflict
+              var okCnt = 0,
+                  cLen = frame.commands.length,
+                  bFail = false;
+              for (var i = 0; i < cLen; i++) {
+                var cmd = frame.commands[i];
+                if (me._data.execCmd(me._transformCmdToNs(cmd, myNamespace))) {
+                  okCnt++;
+                } else {
+                  // there is a conflict, we must revert
+                  bFail = true;
+                  break;
+                }
+              }
+
+              if (!bFail) {
+                // the commands were written OK, now add our own commands to the end
+                // -- the from line is here ---
+                // [frame command]
+                // [frame command]             
+                // [our command]       <--- now we move these back to the end
+                // [our command]
+
+                // fix the current frame start index
+                me._currentFrame.from = chData._journalPointer;
+
+                // now the journal has our "unverified by server" commands at the end
+                chData._journalPointer += rest.length;
+                var i;
+                while (i = rest.shift()) chData._journal.push(i);
+
+                // the _currentFrame is now waiting to be sent and it does not have
+                // data which was conflicting with the incoming frame we just received
+                // to the locat channelObject, so there is a good possibility that
+                // when the data is sent to the server, it will be accepted.
+              } else {
+
+                // inserting the new data has failed, because we have conflicting changes locall
+
+                // first, undo the commands we tried to run
+                me._data.undo(okCnt);
+
+                // then restore the buffer we originally had.
+                chData._journalPointer = orig_pointer;
+                var i;
+                while (i = rest.shift()) chData._journal.push(i);
+
+                // and then, undo the local commands which were conflicting with the server changes
+                chData.undo(rest.length);
+
+                // we should now have the situation server expects to find from the "from" index
+
+                // try running the servers commands to the local channelObject
+                bFail = false;
+                for (var i = 0; i < cLen; i++) {
+                  var cmd = frame.commands[i];
+                  if (me._data.execCmd(me._transformCmdToNs(cmd, myNamespace))) {
+                    okCnt++;
+                  } else {
+                    // a problem: something is totally out of order now, what do do?
+                    console.error("syncing frames failed, buffer out of order");
+                    break;
+                  }
+                }
+              }
+            }
+          });
+        };
+
+        /**
+         * @param Object socket
+         */
+        _myTrait_._onFrameLoop = function (socket) {
+
+          var me = this,
+              channelId = this._channelId;
+
+          later().onFrame(function () {
+            if (me._currentFrame && me._currentFrame.commands.length) {
+
+              var sent = me._currentFrame;
+              me._pendingFrames.push(me._currentFrame);
+
+              // TODO: how to resolve the change conflicts here...
+              socket.send("channelCommand", {
+                channelId: channelId,
+                cmd: "changeFrame",
+                data: me._currentFrame
+              }).then(function (resp) {
+                console.log("Command response ");
+                console.log(JSON.stringify(resp));
+                var i = me._pendingFrames.indexOf(sent);
+                me._pendingFrames.splice(i, 1);
+                if (resp.result) {} else {
+                  //  var frame = resp.data;
+                  // check if we need to rollback changes
+                  if (resp.rollBack) {
+                    alert(resp.rollBackTo);
+                    me._data.reverseToLine(frame.rollBackTo);
+                  }
+                }
+              });
+              me._createTransaction();
+            }
+          });
+        };
+
+        /**
          * Add command to next change frame to be sent over the network. TODO: validate the commands against the own channelObject, for example the previous value etc.
          * @param Array cmd
          */
@@ -1083,40 +1273,9 @@
           this._id = channelId + socket.getId();
           var me = this;
 
-          later().onFrame(function () {
-            if (me._currentFrame && me._currentFrame.commands.length) {
+          this._onFrameLoop(socket, myNamespace);
 
-              var sent = me._currentFrame;
-              me._pendingFrames.push(me._currentFrame);
-
-              // TODO: how to resolve the change conflicts here...
-              socket.send("channelCommand", {
-                channelId: channelId,
-                cmd: "changeFrame",
-                data: me._currentFrame
-              }).then(function (resp) {
-                if (resp.result) {
-                  var i = me._pendingFrames.indexOf(sent);
-                  me._pendingFrames.splice(i, 1);
-                } else {
-                  console.error(JSON.stringify(resp));
-                }
-              });
-              me._createTransaction();
-            }
-          });
-
-          // These incoming commands are problematic now...
-          socket.on("frame_" + channelId, function (cmd) {
-            console.log("HEY! We got a change frame here...");
-            console.log(cmd);
-            var frame = cmd.data;
-            frame.commands.forEach(function (cc) {
-              if (me._data.execCmd(me._transformCmdToNs(cc, myNamespace))) {
-                me._currentFrame.from++;
-              }
-            });
-          });
+          this._incoming(socket, myNamespace);
 
           socket.on("connect", function () {
 
