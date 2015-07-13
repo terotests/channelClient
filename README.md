@@ -130,6 +130,7 @@ The client module for the channels
 - [_classFactory](README.md#channelClient__classFactory)
 - [_createTransaction](README.md#channelClient__createTransaction)
 - [addCommand](README.md#channelClient_addCommand)
+- [set](README.md#channelClient_set)
 
 
 
@@ -954,10 +955,12 @@ Add command to next change frame to be sent over the network. TODO: validate the
 
 if(this._currentFrame) {
     console.log(cmd);
+    var cmdOut = this._transformCmdFromNs(cmd, this._ns);
+    var cmdIn  = this._transformCmdToNs(cmd, this._ns);
     // the local command is run immediately and if it passes then we add it to the frame
-    if( this._data.execCmd(this._transformCmdToNs(cmd, this._ns))  ) {
-        console.log("About th send ", cmd);
-        this._currentFrame.commands.push( cmd );        
+    if( this._data.execCmd(cmdIn)  ) {
+        console.log("About th send ", cmdOut);
+        this._currentFrame.commands.push( cmdOut );        
     }
 
 }
@@ -1094,6 +1097,27 @@ socket.on("connect", function() {
 
 ```
         
+### <a name="channelClient_set"></a>channelClient::set(id, name, value)
+
+
+```javascript
+
+// Q: What is the ID we are supposed to use here... I guess it should be
+// 
+
+var ns_id = this._idToNs( id, this._ns ); // is this too slow?
+var obj = this._data._find( ns_id );
+console.log("the set has found the obj" , obj, ns_id);
+if(obj) {
+    var old_value = obj.data[name];
+    if( old_value != value) {
+        console.log("== set is sending ", value, old_value);
+        this.addCommand([4, name, value, old_value, ns_id ]);
+    }
+}
+
+```
+
 
 
    
