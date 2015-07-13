@@ -738,6 +738,255 @@
         };
       })(this);
 
+      // trait comes here...
+
+      (function (_myTrait_) {
+        var _cmdNsMap;
+
+        // Initialize static variables here...
+
+        /**
+         * @param float url
+         */
+        _myTrait_._getNsFromUrl = function (url) {
+          if (_nsShortcuts[url]) {
+            return _nsShortcuts[url];
+          }
+          _nsReverse[_nsIndex] = url;
+          _nsShortcuts[url] = _nsIndex++;
+
+          return _nsShortcuts[url];
+        };
+
+        /**
+         * @param float nsName
+         */
+        _myTrait_._getNsShorthand = function (nsName) {
+
+          if (_nsShortcuts[nsName]) {
+            return _nsShortcuts[nsName];
+          }
+          _nsReverse[_nsIndex] = nsName;
+          _nsShortcuts[nsName] = _nsIndex++;
+
+          return _nsShortcuts[nsName];
+        };
+
+        /**
+         * @param float t
+         */
+        _myTrait_._getReflections = function (t) {
+          return _localReflections;
+        };
+
+        /**
+         * @param float objId
+         */
+        _myTrait_._getReflectionsFor = function (objId) {
+
+          if (_localReflections) {
+            var list = _localReflections[objId];
+            if (list) return list;
+          }
+          return [];
+        };
+
+        /**
+         * @param int index
+         */
+        _myTrait_._getReverseNs = function (index) {
+
+          return _nsReverse[index];
+        };
+
+        /**
+         * @param float id
+         */
+        _myTrait_._idFromNs = function (id) {
+          if (id) {
+
+            var len = id.length;
+            if (id[len - 1] == "#") {
+              id = id.split("@").shift();
+            }
+          }
+          return id;
+        };
+
+        /**
+         * @param float id
+         * @param float ns
+         */
+        _myTrait_._idToNs = function (id, ns) {
+
+          if (id) {
+            var len = id.length;
+            // longString
+
+            if (id[len - 1] == "#") {
+              var ind = id.indexOf("@");
+              var oldNs = id.substring(ind + 1, len - 1);
+              if (oldNs != ns) {
+                id = id.substring(0, ind) + "@" + ns + "#";
+              }
+            } else {
+              id = id + "@" + ns + "#";
+            }
+          }
+          return id;
+        };
+
+        /**
+         * @param float id
+         */
+        _myTrait_._nsFromId = function (id) {
+          var ns;
+          if (id) {
+            id = id + "";
+            var len = id.length;
+            if (id[len - 1] == "#") {
+              ns = id.split("@").pop();
+              ns = ns.split("#").shift();
+            }
+          }
+          return ns;
+        };
+
+        /**
+         * @param float cmd
+         * @param float ns
+         */
+        _myTrait_._transformCmdFromNs = function (cmd, ns) {
+          var map = _cmdNsMap,
+              nextCmd = cmd.slice(),
+              swap = map[cmd[0]],
+              me = this;
+          if (swap) {
+            swap.forEach(function (index) {
+              nextCmd[index] = me._idFromNs(nextCmd[index], ns);
+            });
+          }
+          return nextCmd;
+        };
+
+        /**
+         * @param float cmd
+         * @param float ns
+         */
+        _myTrait_._transformCmdToNs = function (cmd, ns) {
+
+          var map = _cmdNsMap,
+              nextCmd = cmd.slice(),
+              swap = map[cmd[0]],
+              me = this;
+          if (swap) {
+            for (var i = 0; i < swap.length; i++) {
+              var index = swap[i];
+              nextCmd[index] = this._idToNs(nextCmd[index], ns);
+            }
+          }
+          return nextCmd;
+        };
+
+        /**
+         * @param float obj
+         * @param float ns
+         */
+        _myTrait_._transformObjFromNs = function (obj, ns) {
+          if (obj && obj.__id) {
+            obj.__id = this._idFromNs(obj.__id, ns);
+            for (var n in obj.data) {
+              if (obj.data.hasOwnProperty(n)) {
+                if (this.isObject(obj.data[n])) this._transformObjFromNs(obj.data[n], ns);
+              }
+            }
+          }
+          return obj;
+        };
+
+        /**
+         * @param float obj
+         * @param float ns
+         */
+        _myTrait_._transformObjToNs = function (obj, ns) {
+
+          if (obj && obj.__id) {
+
+            // the old way, currently the socket ID may be the same, but not used right now
+            /*
+            var nsNext;
+            if(obj.__radioURL) {
+            var nsNext = this._getNsShorthand( obj.__radioURL );
+            }
+            ns = nsNext || ns;
+            */
+
+            // obj = me._transformObjToNs( obj, ns );
+            obj.__id = this._idToNs(obj.__id, ns);
+            if (obj.__p) {
+              obj.__p = this._idToNs(obj.__p, ns);
+            }
+            for (var n in obj.data) {
+              if (obj.data.hasOwnProperty(n)) {
+                if (this.isObject(obj.data[n])) this._transformObjToNs(obj.data[n], nsNext || ns);
+              }
+            }
+          }
+
+          return obj;
+        };
+
+        /**
+         * @param float obj
+         * @param float parentObj
+         * @param float parentObj2
+         */
+        _myTrait_._transformToNsBeforeInsert = function (obj, parentObj, parentObj2) {
+
+          // OK, so...
+
+          var cmdList = obj.__ctxCmdList;
+          var ns = this._nsFromId(parentObj.__id);
+
+          console.log(" _transformToNsBeforeInsert ");
+
+          var me = this;
+          if (ns) {
+            // console.log("Using namespace "+ns);
+            if (cmdList) {
+              cmdList.forEach(function (c) {
+                c.cmd = me._transformCmdToNs(c.cmd, ns);
+              });
+            }
+            obj = me._transformObjToNs(obj, ns);
+            obj.__ctxCmdList = cmdList;
+            this._addToCache(obj);
+            return obj;
+          }
+          // this._addToCache( obj );
+          return obj;
+        };
+
+        if (_myTrait_.__traitInit && !_myTrait_.hasOwnProperty("__traitInit")) _myTrait_.__traitInit = _myTrait_.__traitInit.slice();
+        if (!_myTrait_.__traitInit) _myTrait_.__traitInit = [];
+        _myTrait_.__traitInit.push(function (t) {
+          if (!_cmdNsMap) {
+            _cmdNsMap = {
+              1: [1],
+              2: [1],
+              4: [4],
+              5: [2, 4],
+              7: [2, 4],
+              8: [2, 4],
+              10: [2, 4],
+              12: [4],
+              13: [4],
+              16: [3, 4]
+            };
+          }
+        });
+      })(this);
+
       (function (_myTrait_) {
         var _instanceCache;
 
@@ -804,7 +1053,12 @@
           */
 
           if (this._currentFrame) {
-            this._currentFrame.commands.push(cmd);
+            console.log(cmd);
+            // the local command is run immediately and if it passes then we add it to the frame
+            if (this._data.execCmd(this._transformCmdToNs(cmd, this._ns))) {
+              console.log("About th send ", cmd);
+              this._currentFrame.commands.push(cmd);
+            }
           }
         };
 
@@ -819,6 +1073,9 @@
           this._options = options;
           this._changeFrames = [];
           this._pendingFrames = [];
+
+          var myNamespace = socket.getEnum();
+          this._ns = myNamespace;
 
           this._id = channelId + socket.getId();
           var me = this;
@@ -836,10 +1093,24 @@
                 if (resp.result) {
                   var i = me._pendingFrames.indexOf(sent);
                   me._pendingFrames.splice(i, 1);
+                } else {
+                  console.error(JSON.stringify(resp));
                 }
               });
               me._createTransaction();
             }
+          });
+
+          // These incoming commands are problematic now...
+          socket.on("frame_" + channelId, function (cmd) {
+            console.log("HEY! We got a change frame here...");
+            console.log(cmd);
+            var frame = cmd.data;
+            frame.commands.forEach(function (cc) {
+              if (me._data.execCmd(me._transformCmdToNs(cc, myNamespace))) {
+                me._currentFrame.from++;
+              }
+            });
           });
 
           socket.on("connect", function () {
@@ -881,9 +1152,14 @@
               }).then(function (resp) {
 
                 if (resp) {
-                  // the build tree is here now...
+
+                  // The build tree is here now...
+                  // Should you transform the objects to other namespaces...?
 
                   var mainData = resp.pop();
+
+                  // The data is here... but transforming?
+                  mainData = me._transformObjToNs(mainData, myNamespace);
 
                   var chData = _channelData(me._id, mainData, []);
                   var list = resp.pop();
@@ -892,14 +1168,12 @@
                     chData._journalPointer = 0;
                     chData._journal.length = 0; // <-- the journal length, last will be spared
                     list.forEach(function (c) {
-                      chData.execCmd(c);
+                      chData.execCmd(me._transformCmdToNs(c, myNamespace));
                     });
                     list = resp.pop();
                   }
                   me._data = chData;
-
                   me._createTransaction();
-
                   me.resolve({
                     result: true,
                     channelId: channelId

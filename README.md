@@ -145,9 +145,31 @@ The client module for the channels
 
     
     
+    
+##### trait commad_trait
+
+- [_getNsFromUrl](README.md#commad_trait__getNsFromUrl)
+- [_getNsShorthand](README.md#commad_trait__getNsShorthand)
+- [_getReflections](README.md#commad_trait__getReflections)
+- [_getReflectionsFor](README.md#commad_trait__getReflectionsFor)
+- [_getReverseNs](README.md#commad_trait__getReverseNs)
+- [_idFromNs](README.md#commad_trait__idFromNs)
+- [_idToNs](README.md#commad_trait__idToNs)
+- [_nsFromId](README.md#commad_trait__nsFromId)
+- [_transformCmdFromNs](README.md#commad_trait__transformCmdFromNs)
+- [_transformCmdToNs](README.md#commad_trait__transformCmdToNs)
+- [_transformObjFromNs](README.md#commad_trait__transformObjFromNs)
+- [_transformObjToNs](README.md#commad_trait__transformObjToNs)
+- [_transformToNsBeforeInsert](README.md#commad_trait__transformToNsBeforeInsert)
+
+
+    
+    
 
 
    
+      
+    
       
     
 
@@ -931,7 +953,13 @@ Add command to next change frame to be sent over the network. TODO: validate the
 */
 
 if(this._currentFrame) {
-    this._currentFrame.commands.push( cmd );
+    console.log(cmd);
+    // the local command is run immediately and if it passes then we add it to the frame
+    if( this._data.execCmd(this._transformCmdToNs(cmd, this._ns))  ) {
+        console.log("About th send ", cmd);
+        this._currentFrame.commands.push( cmd );        
+    }
+
 }
 ```
 
@@ -946,6 +974,9 @@ this._socket = socket;
 this._options = options;
 this._changeFrames = [];
 this._pendingFrames = [];
+
+var myNamespace = socket.getEnum();
+this._ns = myNamespace;
 
 this._id = channelId + socket.getId();
 var me = this;
@@ -964,12 +995,27 @@ later().every( 1/ 10, function() {
                     if(resp.result) {
                         var i = me._pendingFrames.indexOf( sent );
                         me._pendingFrames.splice(i,1);
+                    } else {
+                        console.error(JSON.stringify(resp));
                     }
                 });
         me._createTransaction();
     
     }
 })
+
+// These incoming commands are problematic now...
+socket.on("frame_"+channelId, function(cmd) {
+    console.log("HEY! We got a change frame here...");
+    console.log(cmd);
+    var frame = cmd.data;
+    frame.commands.forEach( function(cc) {
+        if( me._data.execCmd(me._transformCmdToNs(cc, myNamespace)) ) {
+            me._currentFrame.from++;
+        }
+        
+    });
+});
 
 socket.on("connect", function() {
     
@@ -1014,9 +1060,14 @@ socket.on("connect", function() {
 
             
             if(resp) {
-                // the build tree is here now...
+                
+                // The build tree is here now...
+                // Should you transform the objects to other namespaces...?
                 
                 var mainData = resp.pop();
+
+                // The data is here... but transforming?
+                mainData = me._transformObjToNs( mainData, myNamespace );
 
                 var chData = _channelData( me._id, mainData, [] );
                 var list = resp.pop();
@@ -1025,14 +1076,12 @@ socket.on("connect", function() {
                     chData._journalPointer = 0;
                     chData._journal.length = 0; // <-- the journal length, last will be spared
                     list.forEach( function(c) {
-                        chData.execCmd(c);
+                        chData.execCmd(me._transformCmdToNs(c, myNamespace));
                     });
                     list = resp.pop();
                 }                
                 me._data = chData;
-                
                 me._createTransaction();
-                
                 me.resolve({ result : true, channelId : channelId });
                 
             } else {
@@ -1087,9 +1136,264 @@ return t === Object(t);
 
     
     
+    
+## trait commad_trait
+
+The class has following internal singleton variables:
+        
+* _cmdNsMap
+        
+        
+### <a name="commad_trait__getNsFromUrl"></a>commad_trait::_getNsFromUrl(url)
+
+
+```javascript
+if(_nsShortcuts[url]) {
+    return _nsShortcuts[url];
+}
+_nsReverse[_nsIndex] = url;
+_nsShortcuts[url] = _nsIndex++;
+
+return _nsShortcuts[url];
+```
+
+### <a name="commad_trait__getNsShorthand"></a>commad_trait::_getNsShorthand(nsName)
+
+
+```javascript
+
+if(_nsShortcuts[nsName]) {
+    return _nsShortcuts[nsName];
+}
+_nsReverse[_nsIndex] = nsName;
+_nsShortcuts[nsName] = _nsIndex++;
+
+return _nsShortcuts[nsName];
+```
+
+### <a name="commad_trait__getReflections"></a>commad_trait::_getReflections(t)
+
+
+```javascript
+return _localReflections;
+```
+
+### <a name="commad_trait__getReflectionsFor"></a>commad_trait::_getReflectionsFor(objId)
+
+
+```javascript
+
+if(_localReflections) {
+    var list = _localReflections[objId];
+    if(list) return list;
+}
+return [];
+```
+
+### <a name="commad_trait__getReverseNs"></a>commad_trait::_getReverseNs(index)
+
+
+```javascript
+
+return _nsReverse[index];
+```
+
+### <a name="commad_trait__idFromNs"></a>commad_trait::_idFromNs(id)
+
+
+```javascript
+if(id) {
+    
+    var len = id.length;
+    if(id[len-1]=="#") {    
+        id = id.split("@").shift();
+    } 
+}
+return id;
+```
+
+### <a name="commad_trait__idToNs"></a>commad_trait::_idToNs(id, ns)
+
+
+```javascript
+
+if(id) {
+    var len = id.length;
+    // longString
+    
+    if(id[len-1]=="#") {
+        var ind = id.indexOf("@");
+        var oldNs = id.substring(ind+1, len-1);
+        if(oldNs != ns ) {
+            id = id.substring(0,ind) +"@"+ns+"#";
+        }
+    } else {
+        id = id+"@"+ns+"#";
+    }
+}
+return id;
+```
+
+### <a name="commad_trait__nsFromId"></a>commad_trait::_nsFromId(id)
+
+
+```javascript
+var ns;
+if(id) {
+    id = id+"";
+    var len = id.length;
+    if(id[len-1]=="#") {    
+        ns = id.split("@").pop();
+        ns = ns.split("#").shift();
+    } 
+}
+return ns;
+```
+
+### <a name="commad_trait__transformCmdFromNs"></a>commad_trait::_transformCmdFromNs(cmd, ns)
+
+
+```javascript
+var map = _cmdNsMap,
+    nextCmd = cmd.slice(),
+    swap = map[cmd[0]],
+    me = this;
+if(swap) {
+    swap.forEach( function(index) {
+        nextCmd[index] = me._idFromNs( nextCmd[index], ns );
+    });
+}
+return nextCmd;
+```
+
+### <a name="commad_trait__transformCmdToNs"></a>commad_trait::_transformCmdToNs(cmd, ns)
+
+
+```javascript
+
+
+var map = _cmdNsMap,
+    nextCmd = cmd.slice(),
+    swap = map[cmd[0]],
+    me = this;
+if(swap) {
+    for(var i=0; i< swap.length;i++) {
+        var index = swap[i];
+        nextCmd[index] = this._idToNs( nextCmd[index], ns );
+    }
+} 
+return nextCmd;
+
+```
+
+### <a name="commad_trait__transformObjFromNs"></a>commad_trait::_transformObjFromNs(obj, ns)
+
+
+```javascript
+if(obj && obj.__id) {
+    obj.__id = this._idFromNs( obj.__id, ns );
+    for(var n in obj.data) {
+        if(obj.data.hasOwnProperty(n)) {
+            if(this.isObject(obj.data[n])) this._transformObjFromNs( obj.data[n], ns );
+        }
+    }
+}
+return obj;
+
+```
+
+### <a name="commad_trait__transformObjToNs"></a>commad_trait::_transformObjToNs(obj, ns)
+
+
+```javascript
+
+if(obj && obj.__id) {
+    
+    // the old way, currently the socket ID may be the same, but not used right now
+    /*
+    var nsNext;
+    if(obj.__radioURL) {
+        var nsNext = this._getNsShorthand( obj.__radioURL );
+    }
+    ns = nsNext || ns;
+    */
+    
+    // obj = me._transformObjToNs( obj, ns );
+    obj.__id = this._idToNs( obj.__id, ns );
+    if(obj.__p) {
+        obj.__p = this._idToNs( obj.__p, ns );
+    }
+    for(var n in obj.data) {
+        if(obj.data.hasOwnProperty(n)) {
+            if(this.isObject(obj.data[n])) this._transformObjToNs( obj.data[n], nsNext || ns );
+        }
+    }
+}
+
+return obj;
+
+
+```
+
+### <a name="commad_trait__transformToNsBeforeInsert"></a>commad_trait::_transformToNsBeforeInsert(obj, parentObj, parentObj2)
+
+
+```javascript
+
+// OK, so...
+
+var cmdList = obj.__ctxCmdList;
+var ns = this._nsFromId( parentObj.__id );
+
+console.log(" _transformToNsBeforeInsert ");
+
+var me = this;
+if(ns) {
+    // console.log("Using namespace "+ns);
+    if(cmdList) {
+        cmdList.forEach( function(c) {
+            c.cmd = me._transformCmdToNs( c.cmd, ns );
+        });
+    }
+    obj = me._transformObjToNs( obj, ns );
+    obj.__ctxCmdList = cmdList;
+    this._addToCache( obj );
+    return obj;
+}
+// this._addToCache( obj );
+return obj;
+
+
+
+```
+
+### commad_trait::constructor( t )
+
+```javascript
+if(!_cmdNsMap) {
+    _cmdNsMap = {
+        1 : [1],
+        2 : [1],
+        4 : [4],
+        5  : [2,4],
+        7  : [2,4],
+        8  : [2,4],
+        10 : [2,4],
+        12 : [4],
+        13 : [4],
+        16 : [3,4]
+    };    
+}
+```
+        
+
+    
+    
 
 
    
+      
+    
       
     
 
