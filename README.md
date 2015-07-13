@@ -979,17 +979,20 @@ this._changeFrames = [];
 this._pendingFrames = [];
 
 var myNamespace = socket.getEnum();
+
 this._ns = myNamespace;
 
 this._id = channelId + socket.getId();
 var me = this;
 
 
-later().every( 1/ 10, function() {
+later().onFrame(  function() {
     if(me._currentFrame && me._currentFrame.commands.length ) {
         
         var sent = me._currentFrame;
         me._pendingFrames.push( me._currentFrame );
+        
+        // TODO: how to resolve the change conflicts here...
         socket.send("channelCommand", {
                         channelId : channelId,
                         cmd : "changeFrame",
