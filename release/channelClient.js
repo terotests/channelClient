@@ -1056,18 +1056,14 @@
             var myLine = me._data.getJournalLine();
             if (myLine == frame.from) {
               console.log("--- incoming ok --- ");
-              me._logJournal();
               frame.commands.forEach(function (cc) {
                 if (me._data.execCmd(me._transformCmdToNs(cc, myNamespace))) {
                   me._currentFrame.from++;
                 }
               });
-              me._lastGoodIndex = me._data._journalPointer;
-              me._logJournal();
               return; // easiest option
             } else {
               console.log("--- incoming had problems --- ");
-              me._logJournal();
               // now the situation looks like this:
 
               // -- the from line is here ---
@@ -1102,21 +1098,16 @@
 
                 chData.reverseToLine(frame.from); // last known common position
                 for (var i = 0; i < frame.commands.length; i++) {
-                  var cc = frame.commands[i];
-                  if (me._data.execCmd(me._transformCmdToNs(cc, myNamespace))) {
+                  var cmd = frame.commands[i];
+                  if (me._data.execCmd(me._transformCmdToNs(cmd, myNamespace))) {
                     okCnt++;
                   } else {
                     // a problem: something is totally out of order now, what do do?
                     console.error("syncing frames failed, buffer out of order");
-                    console.error(JSON.stringify(cc));
-                    console.error(chData._data.data[cc[1]]);
                     break;
                   }
                 }
-                me._lastGoodIndex = me._data._journalPointer;
-                me._logJournal();
                 console.log("--- done --- ");
-
                 me._createTransaction(); // reset the current frame also
                 return; //
               }
@@ -1134,8 +1125,8 @@
                   cLen = frame.commands.length,
                   bFail = false;
               for (var i = 0; i < cLen; i++) {
-                var cc = frame.commands[i];
-                if (me._data.execCmd(me._transformCmdToNs(cc, myNamespace))) {
+                var cmd = frame.commands[i];
+                if (me._data.execCmd(me._transformCmdToNs(cmd, myNamespace))) {
                   okCnt++;
                 } else {
                   // there is a conflict, we must revert
@@ -1162,9 +1153,6 @@
                 var i;
                 while (i = rest.shift()) chData._journal.push(i);
 
-                me._lastGoodIndex = me._data._journalPointer;
-                me._logJournal();
-
                 // the _currentFrame is now waiting to be sent and it does not have
                 // data which was conflicting with the incoming frame we just received
                 // to the locat channelObject, so there is a good possibility that
@@ -1172,10 +1160,8 @@
               } else {
 
                 console.log("--- run failed  --- ");
-                me._logJournal();
-                // inserting the new data has failed, because we have conflicting changes locall
 
-                console.log("OK cnt " + okCnt);
+                // inserting the new data has failed, because we have conflicting changes locall
 
                 // first, undo the commands we tried to run
                 me._data.undo(okCnt);
@@ -1194,34 +1180,17 @@
                 // try running the servers commands to the local channelObject
                 bFail = false;
                 for (var i = 0; i < cLen; i++) {
-                  var cc = frame.commands[i];
-                  if (me._data.execCmd(me._transformCmdToNs(cc, myNamespace))) {
+                  var cmd = frame.commands[i];
+                  if (me._data.execCmd(me._transformCmdToNs(cmd, myNamespace))) {
                     okCnt++;
                   } else {
-                    debugger;
                     // a problem: something is totally out of order now, what do do?
                     console.error("syncing frames failed, buffer out of order");
-                    console.error(JSON.stringify(cc));
-                    console.error(chData._data.data[cc[1]]);
                     break;
                   }
                 }
-                me._lastGoodIndex = me._data._journalPointer;
-                me._logJournal();
-                me._createTransaction(); // reset the current frame also
               }
             }
-          });
-        };
-
-        /**
-         * @param float t
-         */
-        _myTrait_._logJournal = function (t) {
-
-          console.log("--- journal " + this._socket.getEnum() + " ---- ");
-          this._data._journal.forEach(function (j, i) {
-            console.log(i, j);
           });
         };
 
@@ -1234,90 +1203,64 @@
               channelId = this._channelId;
 
           later().onFrame(function () {
-            me._sendFrame();
-          });
-        };
+            if (me._currentFrame && me._currentFrame.commands.length) {
 
-        /**
-         * @param float t
-         */
-        _myTrait_._sendFrame = function (t) {
+              var sent = me._currentFrame;
+              me._pendingFrames.push(me._currentFrame);
+              //console.log("--- about to send ----");
+              //console.log(JSON.stringify(me._currentFrame ));
+              // TODO: how to resolve the change conflicts here...
+              socket.send("channelCommand", {
+                channelId: channelId,
+                cmd: "changeFrame",
+                data: me._currentFrame
+              }).then(function (resp) {
 
-          var me = this,
-              channelId = this._channelId;
+                console.log("Command response " + socket.getEnum());
+                console.log(JSON.stringify(sent));
+                console.log(JSON.stringify(resp));
 
-          var socket = this._socket;
+                var i = me._pendingFrames.indexOf(sent);
+                me._pendingFrames.splice(i, 1);
+                if (resp.result) {
+                  console.log("---- ok ---- ");
+                  //console.log(JSON.stringify(sent));
 
-          if (me._currentFrame && me._currentFrame.commands.length) {
+                  if (resp.correctLines && resp.correctLines.length) {
 
-            var sent = me._currentFrame;
-            me._pendingFrames.push(me._currentFrame);
-            //console.log("--- about to send ----");
-            //console.log(JSON.stringify(me._currentFrame ));
-            // TODO: how to resolve the change conflicts here...
-            socket.send("channelCommand", {
-              channelId: channelId,
-              cmd: "changeFrame",
-              data: me._currentFrame
-            }).then(function (resp) {
+                    var first = resp.correctStart;
+                    console.log("---- rolling back JUST IN CASE ---- ");
+                    me._data.reverseToLine(first);
 
-              console.log("Command response " + socket.getEnum());
-              console.log(JSON.stringify(sent));
-              console.log(JSON.stringify(resp));
-
-              var i = me._pendingFrames.indexOf(sent);
-              me._pendingFrames.splice(i, 1);
-              if (resp.result) {
-                console.log("---- ok ---- ");
-                //console.log(JSON.stringify(sent));
-
-                if (resp.correctLines && resp.correctLines.length) {
-
-                  var first = resp.correctStart;
-                  console.log("---- rolling back JUST IN CASE ---- ");
-                  me._logJournal();
-                  me._data.reverseToLine(first);
-                  /*
-                  {"id":"947drhfxsoc1s1iqc3gyjgfzux","from":9,"result":true,"rollBack":false,"failed":[],"correctStart":9,"
-                  correctLines":[
-                  [4,"fill","t114 ms 641","t19 ms 597","id1"],
-                  [4,"stroke","se_14 ms 641","se_9 ms 597","id1"]],"validCnt":2}
-                  */
-                  resp.correctLines.forEach(function (c) {
-                    //                                 me._data.execCmd(c);
-                    var cc = me._transformCmdToNs(c, me._ns);
-                    console.log(cc);
-                    if (!me._data.execCmd(cc)) {
-                      console.error("Failed to execute ", cc);
-                    }
-                  });
-                  me._lastGoodIndex = me._data._journalPointer;
-                  me._logJournal();
-                }
-              } else {
-                //  var frame = resp.data;
-                // check if we need to rollback changes
-                if (resp.correctLines && resp.correctLines.length) {
-
-                  var first = resp.correctStart;
-                  console.log("---- rolling back to " + first + " ---- ");
-                  me._data.reverseToLine(first);
-
-                  resp.correctLines.forEach(function (c) {
-                    //                                 me._data.execCmd(c);
-                    me._data.execCmd(me._transformCmdToNs(c, me._ns));
-                  });
-                  me._logJournal();
-                  me._createTransaction();
+                    resp.correctLines.forEach(function (c) {
+                      //                                 me._data.execCmd(c);
+                      me._data.execCmd(me._transformCmdToNs(c, me._ns));
+                    });
+                  }
                 } else {
-                  console.log("---- failed, but no rollback ---- ");
-                  me._data.reverseToLine(me._lastGoodIndex);
-                  //console.log(JSON.stringify(sent));                          
+                  //  var frame = resp.data;
+                  // check if we need to rollback changes
+                  if (resp.correctLines && resp.correctLines.length) {
+
+                    var first = resp.correctStart;
+                    console.log("---- rolling back ---- ");
+                    me._data.reverseToLine(first);
+
+                    resp.correctLines.forEach(function (c) {
+                      //                                 me._data.execCmd(c);
+                      me._data.execCmd(me._transformCmdToNs(c, me._ns));
+                    });
+
+                    me._createTransaction();
+                  } else {
+                    console.log("---- failed, but no rollback ---- ");
+                    //console.log(JSON.stringify(sent));                          
+                  }
                 }
-              }
-            });
-            me._createTransaction();
-          }
+              });
+              me._createTransaction();
+            }
+          });
         };
 
         /**
@@ -1349,6 +1292,25 @@
           }
         };
 
+        /**
+         * @param string id
+         * @param float name
+         */
+        _myTrait_.get = function (id, name) {
+          var ns_id = this._idToNs(id, this._ns); // is this too slow?
+          var obj = this._data._find(ns_id);
+          if (obj) {
+            return obj.data[name];
+          }
+        };
+
+        /**
+         * @param float t
+         */
+        _myTrait_.getData = function (t) {
+          return this._data.getData();
+        };
+
         if (_myTrait_.__traitInit && !_myTrait_.hasOwnProperty("__traitInit")) _myTrait_.__traitInit = _myTrait_.__traitInit.slice();
         if (!_myTrait_.__traitInit) _myTrait_.__traitInit = [];
         _myTrait_.__traitInit.push(function (channelId, socket, options) {
@@ -1360,7 +1322,6 @@
           this._options = options;
           this._changeFrames = [];
           this._pendingFrames = [];
-          this._lastGoodIndex = 0;
 
           var myNamespace = socket.getEnum();
 
@@ -1369,9 +1330,7 @@
           this._id = channelId + socket.getId();
           var me = this;
 
-          if (options.manualSend) {} else {
-            this._onFrameLoop(socket, myNamespace);
-          }
+          this._onFrameLoop(socket, myNamespace);
 
           this._incoming(socket, myNamespace);
 
@@ -1436,7 +1395,6 @@
                   }
                   me._data = chData;
                   me._createTransaction();
-                  me._lastGoodIndex = me._data._journalPointer;
                   me.resolve({
                     result: true,
                     channelId: channelId
