@@ -928,7 +928,7 @@
             }
             for (var n in obj.data) {
               if (obj.data.hasOwnProperty(n)) {
-                if (this.isObject(obj.data[n])) this._transformObjToNs(obj.data[n], nsNext || ns);
+                if (this.isObject(obj.data[n])) this._transformObjToNs(obj.data[n], ns);
               }
             }
           }
@@ -979,7 +979,7 @@
               7: [2, 4],
               8: [2, 4],
               10: [2, 4],
-              12: [4],
+              12: [1, 4],
               13: [4],
               16: [3, 4]
             };
@@ -1031,6 +1031,17 @@
             ]                               
           }
           */
+        };
+
+        /**
+         * @param float id
+         */
+        _myTrait_._fetch = function (id) {
+          var ns_id = this._idToNs(id, this._ns); // is this too slow?
+          var obj = this._data._find(ns_id);
+          if (obj) {
+            return obj;
+          }
         };
 
         /**
@@ -1293,6 +1304,18 @@
         };
 
         /**
+         * @param float id
+         * @param float index
+         */
+        _myTrait_.at = function (id, index) {
+          var ns_id = this._idToNs(id, this._ns); // is this too slow?
+          var obj = this._data._find(ns_id);
+          if (obj) {
+            return obj.data[index];
+          }
+        };
+
+        /**
          * @param string id
          * @param float name
          */
@@ -1307,8 +1330,31 @@
         /**
          * @param float t
          */
+        _myTrait_.getChannelData = function (t) {
+          return this._data;
+        };
+
+        /**
+         * @param float t
+         */
         _myTrait_.getData = function (t) {
           return this._data.getData();
+        };
+
+        /**
+         * @param float id
+         */
+        _myTrait_.indexOf = function (id) {
+          var ns_id = this._idToNs(id, this._ns); // is this too slow?
+          var obj = this._data._find(ns_id);
+          if (obj) {
+            var parent = this._fetch(obj.__p);
+            if (parent && parent.data) {
+              var index = parent.data.indexOf(obj);
+              return index;
+            }
+          }
+          return -1;
         };
 
         if (_myTrait_.__traitInit && !_myTrait_.hasOwnProperty("__traitInit")) _myTrait_.__traitInit = _myTrait_.__traitInit.slice();
@@ -1409,6 +1455,96 @@
             }
           });
         });
+
+        /**
+         * @param float id
+         */
+        _myTrait_.length = function (id) {
+          var ns_id = this._idToNs(id, this._ns); // is this too slow?
+          var obj = this._data._find(ns_id);
+          if (obj && obj.data) {
+            return obj.data.length || 0;
+          }
+          return 0;
+        };
+
+        /**
+         * @param float id
+         */
+        _myTrait_.moveDown = function (id) {
+          var ns_id = this._idToNs(id, this._ns); // is this too slow?
+          var obj = this._data._find(ns_id);
+          if (obj) {
+            var parent = this._fetch(obj.__p);
+            if (parent && parent.data) {
+              var index = parent.data.indexOf(obj);
+              var newIndex = index - 1;
+              if (newIndex >= 0 && index >= 0 && index != newIndex && parent.data.length > newIndex) {
+                this.addCommand([12, ns_id, newIndex, index, parent.__id]);
+                // dataTest.execCmd( [12, "obj4", 0, 2, "array1"], true);
+              }
+            }
+          }
+        };
+
+        /**
+         * @param float id
+         * @param float newIndex
+         */
+        _myTrait_.moveTo = function (id, newIndex) {
+          var ns_id = this._idToNs(id, this._ns); // is this too slow?
+          var obj = this._data._find(ns_id);
+          if (obj) {
+            var parent = this._fetch(obj.__p);
+            if (parent && parent.data) {
+              var index = parent.data.indexOf(obj);
+              if (index >= 0 && index != newIndex && parent.data.length > newIndex) {
+                this.addCommand([12, ns_id, newIndex, index, parent.__id]);
+                // dataTest.execCmd( [12, "obj4", 0, 2, "array1"], true);
+              }
+            }
+          }
+        };
+
+        /**
+         * @param float id
+         */
+        _myTrait_.moveUp = function (id) {
+          var ns_id = this._idToNs(id, this._ns); // is this too slow?
+          var obj = this._data._find(ns_id);
+          if (obj) {
+            var parent = this._fetch(obj.__p);
+            if (parent && parent.data) {
+              var index = parent.data.indexOf(obj);
+              var newIndex = index + 1;
+              if (newIndex >= 0 && index >= 0 && index != newIndex && parent.data.length > newIndex) {
+                debugger;
+                this.addCommand([12, ns_id, newIndex, index, parent.__id]);
+                // dataTest.execCmd( [12, "obj4", 0, 2, "array1"], true);
+              }
+            }
+          }
+        };
+
+        /**
+         * @param float id
+         */
+        _myTrait_.remove = function (id) {
+          var ns_id = this._idToNs(id, this._ns); // is this too slow?
+          var obj = this._data._find(ns_id);
+          if (obj) {
+            var parent = this._fetch(obj.__p);
+            if (parent && parent.data) {
+              var index = parent.data.indexOf(obj);
+              if (index >= 0) {
+                this.addCommand([8, index, ns_id, 0, parent.__id]);
+                // this.addCommand([4, name, value, old_value, ns_id ]);
+              }
+            }
+            // dataTest.execCmd( [8, 0, "obj1", 0, "array1"], true);
+            // return obj.data[name];
+          }
+        };
 
         /**
          * @param float id

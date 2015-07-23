@@ -134,9 +134,20 @@ The client module for the channels
 
 - [_classFactory](README.md#channelClient__classFactory)
 - [_createTransaction](README.md#channelClient__createTransaction)
+- [_fetch](README.md#channelClient__fetch)
 - [_incoming](README.md#channelClient__incoming)
 - [_onFrameLoop](README.md#channelClient__onFrameLoop)
 - [addCommand](README.md#channelClient_addCommand)
+- [at](README.md#channelClient_at)
+- [get](README.md#channelClient_get)
+- [getChannelData](README.md#channelClient_getChannelData)
+- [getData](README.md#channelClient_getData)
+- [indexOf](README.md#channelClient_indexOf)
+- [length](README.md#channelClient_length)
+- [moveDown](README.md#channelClient_moveDown)
+- [moveTo](README.md#channelClient_moveTo)
+- [moveUp](README.md#channelClient_moveUp)
+- [remove](README.md#channelClient_remove)
 - [set](README.md#channelClient_set)
 
 
@@ -942,6 +953,18 @@ this._currentFrame = {
 
 ```
 
+### <a name="channelClient__fetch"></a>channelClient::_fetch(id)
+
+
+```javascript
+var ns_id = this._idToNs( id, this._ns ); // is this too slow?
+var obj = this._data._find( ns_id );
+if(obj) {
+    return obj;
+}
+
+```
+
 ### <a name="channelClient__incoming"></a>channelClient::_incoming(socket, myNamespace)
 
 This is the beef of almost everything, when a new frame comes around, what to do with it? There are many options what to do, we just have to pick one strategy.
@@ -1077,11 +1100,12 @@ socket.on("frame_"+channelId, function(cmd) {
             
             // then restore the buffer we originally had.
             chData._journalPointer = orig_pointer;
+            var rLen = rest.length;
             var i;
             while( i = rest.shift() ) chData._journal.push( i );
 
             // and then, undo the local commands which were conflicting with the server changes
-            chData.undo( rest.length );
+            chData.undo( rLen );
             
             // we should now have the situation server expects to find from the "from" index
             
@@ -1206,6 +1230,59 @@ if(this._currentFrame) {
 }
 ```
 
+### <a name="channelClient_at"></a>channelClient::at(id, index)
+
+
+```javascript
+var ns_id = this._idToNs( id, this._ns ); // is this too slow?
+var obj = this._data._find( ns_id );
+if(obj) {
+    return obj.data[index];
+}
+```
+
+### <a name="channelClient_get"></a>channelClient::get(id, name)
+
+
+```javascript
+var ns_id = this._idToNs( id, this._ns ); // is this too slow?
+var obj = this._data._find( ns_id );
+if(obj) {
+    return obj.data[name];
+}
+```
+
+### <a name="channelClient_getChannelData"></a>channelClient::getChannelData(t)
+
+
+```javascript
+return this._data;
+```
+
+### <a name="channelClient_getData"></a>channelClient::getData(t)
+
+
+```javascript
+return this._data.getData();
+
+```
+
+### <a name="channelClient_indexOf"></a>channelClient::indexOf(id)
+
+
+```javascript
+var ns_id = this._idToNs( id, this._ns ); // is this too slow?
+var obj = this._data._find( ns_id );
+if(obj) {
+    var parent = this._fetch( obj.__p );
+    if(parent && parent.data) {
+        var index = parent.data.indexOf( obj );
+        return index;
+    }
+}
+return -1;
+```
+
 ### channelClient::constructor( channelId, socket, options )
 
 ```javascript
@@ -1308,6 +1385,105 @@ socket.on("connect", function() {
 
 ```
         
+### <a name="channelClient_length"></a>channelClient::length(id)
+
+
+```javascript
+var ns_id = this._idToNs( id, this._ns ); // is this too slow?
+var obj = this._data._find( ns_id );
+if(obj && obj.data) {
+    return obj.data.length || 0;
+}
+return 0;
+```
+
+### <a name="channelClient_moveDown"></a>channelClient::moveDown(id)
+
+
+```javascript
+var ns_id = this._idToNs( id, this._ns ); // is this too slow?
+var obj = this._data._find( ns_id );
+if(obj) {
+    var parent = this._fetch( obj.__p );
+    if(parent && parent.data) {
+        var index = parent.data.indexOf( obj );
+        var newIndex = index-1;
+        if(newIndex>=0 && index>=0 && index != newIndex && parent.data.length > newIndex) {
+            this.addCommand([12, ns_id, newIndex, index, parent.__id]);
+            // dataTest.execCmd( [12, "obj4", 0, 2, "array1"], true);
+        }
+        
+    }
+}
+
+```
+
+### <a name="channelClient_moveTo"></a>channelClient::moveTo(id, newIndex)
+
+
+```javascript
+var ns_id = this._idToNs( id, this._ns ); // is this too slow?
+var obj = this._data._find( ns_id );
+if(obj) {
+    var parent = this._fetch( obj.__p );
+    if(parent && parent.data) {
+        var index = parent.data.indexOf( obj );
+        if(index>=0 && index != newIndex && parent.data.length > newIndex) {
+            this.addCommand([12, ns_id, newIndex, index, parent.__id]);
+            // dataTest.execCmd( [12, "obj4", 0, 2, "array1"], true);
+        }
+        
+    }
+}
+
+```
+
+### <a name="channelClient_moveUp"></a>channelClient::moveUp(id)
+
+
+```javascript
+var ns_id = this._idToNs( id, this._ns ); // is this too slow?
+var obj = this._data._find( ns_id );
+if(obj) {
+    var parent = this._fetch( obj.__p );
+    if(parent && parent.data) {
+        var index = parent.data.indexOf( obj );
+        var newIndex = index+1;
+        if(newIndex>=0 && index>=0 && index != newIndex && parent.data.length > newIndex) {
+            debugger;
+            this.addCommand([12, ns_id, newIndex, index, parent.__id]);
+            // dataTest.execCmd( [12, "obj4", 0, 2, "array1"], true);
+        }
+        
+    }
+}
+
+```
+
+### <a name="channelClient_remove"></a>channelClient::remove(id)
+
+
+```javascript
+var ns_id = this._idToNs( id, this._ns ); // is this too slow?
+var obj = this._data._find( ns_id );
+if(obj) {
+    var parent = this._fetch( obj.__p );
+    if(parent && parent.data) {
+        var index = parent.data.indexOf( obj );
+        if(index>=0) {
+            this.addCommand([8, index, ns_id, 0, parent.__id]);
+            // this.addCommand([4, name, value, old_value, ns_id ]);
+        }
+        
+    }
+    // dataTest.execCmd( [8, 0, "obj1", 0, "array1"], true);
+    // return obj.data[name];
+}
+
+
+
+```
+
 ### <a name="channelClient_set"></a>channelClient::set(id, name, value)
 
 
@@ -1558,7 +1734,7 @@ if(obj && obj.__id) {
     }
     for(var n in obj.data) {
         if(obj.data.hasOwnProperty(n)) {
-            if(this.isObject(obj.data[n])) this._transformObjToNs( obj.data[n], nsNext || ns );
+            if(this.isObject(obj.data[n])) this._transformObjToNs( obj.data[n], ns );
         }
     }
 }
@@ -1612,7 +1788,7 @@ if(!_cmdNsMap) {
         7  : [2,4],
         8  : [2,4],
         10 : [2,4],
-        12 : [4],
+        12 : [1,4],
         13 : [4],
         16 : [3,4]
     };    
