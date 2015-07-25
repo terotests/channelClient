@@ -1300,6 +1300,10 @@
             if (this._data.execCmd(cmdIn)) {
               this._currentFrame.commands.push(cmdOut);
             }
+          } else {
+            var cmdIn = this._transformCmdToNs(cmd, this._ns);
+            // the local command is run immediately and if it passes then we add it to the frame
+            if (this._data.execCmd(cmdIn)) {}
           }
         };
 
@@ -1361,6 +1365,31 @@
         if (!_myTrait_.__traitInit) _myTrait_.__traitInit = [];
         _myTrait_.__traitInit.push(function (channelId, socket, options) {
 
+          if (options && options.localChannel) {
+
+            this._channelId = channelId;
+            this._options = options;
+            this._socketGUID = this.guid();
+
+            this._socket = _clientSocket(this._socketGUID, 1);
+            var myNamespace = this._socket.getEnum();
+
+            this._ns = myNamespace;
+            this._id = channelId + this._socket.getId();
+            var me = this;
+
+            var mainData = options.localData;
+            mainData = me._transformObjToNs(options.localData, myNamespace);
+
+            var chData = _channelData(me._id, mainData, []);
+            me._data = chData;
+            me.resolve({
+              result: true,
+              channelId: channelId
+            });
+            return;
+          } else {}
+
           if (!channelId || !socket) return;
 
           this._channelId = channelId;
@@ -1377,7 +1406,6 @@
           var me = this;
 
           this._onFrameLoop(socket, myNamespace);
-
           this._incoming(socket, myNamespace);
 
           socket.on("connect", function () {
