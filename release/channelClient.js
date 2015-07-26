@@ -1547,12 +1547,18 @@
               var index = parent.data.indexOf(obj);
               var newIndex = index + 1;
               if (newIndex >= 0 && index >= 0 && index != newIndex && parent.data.length > newIndex) {
-                debugger;
                 this.addCommand([12, ns_id, newIndex, index, parent.__id]);
                 // dataTest.execCmd( [12, "obj4", 0, 2, "array1"], true);
               }
             }
           }
+        };
+
+        /**
+         * @param float cnt
+         */
+        _myTrait_.redo = function (cnt) {
+          this._data.redo(cnt);
         };
 
         /**
@@ -1581,16 +1587,53 @@
          * @param float value
          */
         _myTrait_.set = function (id, name, value) {
-
-          // Q: What is the ID we are supposed to use here... I guess it should be
-          //
-
           var ns_id = this._idToNs(id, this._ns); // is this too slow?
           var obj = this._data._find(ns_id);
-          if (obj) {
+          if (obj && !this.isObject(value)) {
             var old_value = obj.data[name];
             if (old_value != value) {
               this.addCommand([4, name, value, old_value, ns_id]);
+            }
+          }
+        };
+
+        /**
+         * @param float id
+         * @param float name
+         * @param float propObj
+         */
+        _myTrait_.setObject = function (id, name, propObj) {
+          var ns_id = this._idToNs(id, this._ns); // is this too slow?
+          var obj = this._data._find(ns_id);
+
+          if (obj && this.isObject(propObj) && propObj.__id) {
+            var old_value = obj.data[name];
+
+            if (!old_value) {
+              // insert object only if there is no old value
+              this.addCommand([5, name, propObj.__id, null, ns_id]);
+            }
+          }
+        };
+
+        /**
+         * @param int cnt
+         */
+        _myTrait_.undo = function (cnt) {
+          this._data.undo(cnt);
+        };
+
+        /**
+         * @param float id
+         * @param float name
+         */
+        _myTrait_.unset = function (id, name) {
+          var ns_id = this._idToNs(id, this._ns); // is this too slow?
+          var obj = this._data._find(ns_id);
+          if (obj) {
+            var old_obj = obj.data[name];
+            if (old_obj && old_obj.__id) {
+              this.addCommand([10, name, old_obj.__id, null, ns_id]);
             }
           }
         };

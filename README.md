@@ -147,8 +147,12 @@ The client module for the channels
 - [moveDown](README.md#channelClient_moveDown)
 - [moveTo](README.md#channelClient_moveTo)
 - [moveUp](README.md#channelClient_moveUp)
+- [redo](README.md#channelClient_redo)
 - [remove](README.md#channelClient_remove)
 - [set](README.md#channelClient_set)
+- [setObject](README.md#channelClient_setObject)
+- [undo](README.md#channelClient_undo)
+- [unset](README.md#channelClient_unset)
 
 
 
@@ -1480,7 +1484,6 @@ if(obj) {
         var index = parent.data.indexOf( obj );
         var newIndex = index+1;
         if(newIndex>=0 && index>=0 && index != newIndex && parent.data.length > newIndex) {
-            debugger;
             this.addCommand([12, ns_id, newIndex, index, parent.__id]);
             // dataTest.execCmd( [12, "obj4", 0, 2, "array1"], true);
         }
@@ -1488,6 +1491,13 @@ if(obj) {
     }
 }
 
+```
+
+### <a name="channelClient_redo"></a>channelClient::redo(cnt)
+
+
+```javascript
+this._data.redo(cnt);
 ```
 
 ### <a name="channelClient_remove"></a>channelClient::remove(id)
@@ -1518,16 +1528,52 @@ if(obj) {
 
 
 ```javascript
-
-// Q: What is the ID we are supposed to use here... I guess it should be
-// 
-
 var ns_id = this._idToNs( id, this._ns ); // is this too slow?
 var obj = this._data._find( ns_id );
-if(obj) {
+if(obj && !this.isObject(value)) {
     var old_value = obj.data[name];
     if( old_value != value) {
         this.addCommand([4, name, value, old_value, ns_id ]);
+    }
+}
+
+```
+
+### <a name="channelClient_setObject"></a>channelClient::setObject(id, name, propObj)
+
+
+```javascript
+var ns_id = this._idToNs( id, this._ns ); // is this too slow?
+var obj = this._data._find( ns_id );
+
+if(obj && this.isObject(propObj) && propObj.__id) {
+    var old_value = obj.data[name];
+    
+    if( !old_value ) {
+        // insert object only if there is no old value
+        this.addCommand([5, name, propObj.__id, null, ns_id ]);
+    }
+}
+
+```
+
+### <a name="channelClient_undo"></a>channelClient::undo(cnt)
+
+
+```javascript
+this._data.undo(cnt);
+```
+
+### <a name="channelClient_unset"></a>channelClient::unset(id, name)
+
+
+```javascript
+var ns_id = this._idToNs( id, this._ns ); // is this too slow?
+var obj = this._data._find( ns_id );
+if(obj) {
+    var old_obj = obj.data[name];
+    if( old_obj && old_obj.__id ) {
+        this.addCommand([10, name, old_obj.__id, null, ns_id ]);
     }
 }
 
