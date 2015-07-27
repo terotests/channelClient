@@ -857,6 +857,9 @@
          * @param float ns
          */
         _myTrait_._transformCmdFromNs = function (cmd, ns) {
+
+          if (!ns) ns = this._ns;
+
           var map = _cmdNsMap,
               nextCmd = cmd.slice(),
               swap = map[cmd[0]],
@@ -874,6 +877,8 @@
          * @param float ns
          */
         _myTrait_._transformCmdToNs = function (cmd, ns) {
+
+          if (!ns) ns = this._ns;
 
           var map = _cmdNsMap,
               nextCmd = cmd.slice(),

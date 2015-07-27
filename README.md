@@ -1739,6 +1739,9 @@ return ns;
 
 
 ```javascript
+
+if(!ns) ns = this._ns;
+
 var map = _cmdNsMap,
     nextCmd = cmd.slice(),
     swap = map[cmd[0]],
@@ -1756,6 +1759,7 @@ return nextCmd;
 
 ```javascript
 
+if(!ns) ns = this._ns;
 
 var map = _cmdNsMap,
     nextCmd = cmd.slice(),
