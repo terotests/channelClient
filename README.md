@@ -139,6 +139,7 @@ The client module for the channels
 - [_onFrameLoop](README.md#channelClient__onFrameLoop)
 - [addCommand](README.md#channelClient_addCommand)
 - [at](README.md#channelClient_at)
+- [fork](README.md#channelClient_fork)
 - [get](README.md#channelClient_get)
 - [getChannelData](README.md#channelClient_getChannelData)
 - [getData](README.md#channelClient_getData)
@@ -978,6 +979,18 @@ var me = this,
     channelId = this._channelId;
 
 
+socket.on("s2c_"+this._channelId, function(cmd) {
+   // me._policy  
+    console.log("Got "+"s2c_"+me._channelId);
+    console.log(JSON.stringify( cmd) );
+    
+   if(cmd) {
+       var res = me._policy.deltaServerToClient( cmd, me._clientState);
+   }
+   // done, no other action needed???
+});
+
+/*
 // These incoming commands are problematic now...
 socket.on("frame_"+channelId, function(cmd) {
 
@@ -1130,6 +1143,7 @@ socket.on("frame_"+channelId, function(cmd) {
         
     }
 });
+*/
 ```
 
 ### <a name="channelClient__onFrameLoop"></a>channelClient::_onFrameLoop(socket)
@@ -1141,8 +1155,29 @@ var me = this,
     channelId = this._channelId;
 
 later().onFrame(  function() {
+    
+    if(!me._policy) return;
+    
+    var packet = me._policy.constructClientToServer( me._clientState );
+    if(packet) {
+        // debugger;
+    
+            socket.send("channelCommand", {
+                        channelId : channelId,
+                        cmd : "c2s",
+                        data : packet
+                }).then( function() {
+                    
+                })    
+    }
+    
     if(me._currentFrame && me._currentFrame.commands.length ) {
         
+        // Then, send the data to server 
+        
+
+        
+        /*
         var sent = me._currentFrame;
         me._pendingFrames.push( me._currentFrame );
         //console.log("--- about to send ----");
@@ -1200,6 +1235,7 @@ later().onFrame(  function() {
                     }
                 });
         me._createTransaction();
+        */
     
     }
 })
@@ -1250,6 +1286,76 @@ var obj = this._data._find( ns_id );
 if(obj) {
     return obj.data[index];
 }
+```
+
+### <a name="channelClient_fork"></a>channelClient::fork(name, description, options)
+
+
+```javascript
+/*
+{
+   version : 1,
+   name : "Initial version",
+   utc : (new Date()).getTime(),
+   journalLine : 0,
+   channelId : "my/channel/fork1/"
+}
+*/
+// me._channelStatus = respData.status;
+/*
+// has channel + fork information included
+{   "fromJournalLine":1,
+    "version":1,
+    "journalLine":1,
+    "channelId":"my/channel/myFork",
+    "fromVersion":2,
+    "from":"my/channel",
+    "to":"my/channel/myFork",
+    "name":"test of fork","utc":14839287897}
+*/
+
+if(this._isLocal) return;
+
+// ==> OK, ready to send data forward...
+
+// What is the journal line we are using for the fork???
+var forkCmd = {
+    version : this._channelStatus.version,
+    channelId : name,
+    name : description,
+    journalLine : 1
+};
+/*
+me._clientState = {
+    data : chData,              // The channel data object
+    client : me,                // The channel client object (for Namespace conversion )
+    needsRefresh : false,       // true if client is out of sync and needs to reload
+    version : me._channelStatus.version,               
+    last_update : [0, chData.getJournalLine()],  // last succesfull server update
+    last_sent : []              // last range sent to the server
+
+};
+*/
+// <= we must be using the last serverupdate, and maybe add the extra lines to the
+// additional fork information to create a truly dynamic fork of the subject in case
+// some other client is "resisting" the update...
+forkCmd.journalLine = this._clientState.last_update[1]; 
+
+// the fork is being processed, the response is going to be ready after the promise completes
+this._socket.send("channelCommand", {
+            channelId : this._channelId,
+            cmd : "fork",
+            data : forkCmd
+    }).then( function(resp) {
+        // information from the server.
+        // build new channel object
+        // return it as the promise...
+        
+    })  
+
+
+
+
 ```
 
 ### <a name="channelClient_get"></a>channelClient::get(id, name)
@@ -1303,6 +1409,7 @@ if(options && options.localChannel) {
     this._channelId = channelId;
     this._options = options;
     this._socketGUID = this.guid();
+    this._isLocal = true;
     
     this._socket = _clientSocket(this._socketGUID, 1);  
     var myNamespace = this._socket.getEnum();
@@ -1381,10 +1488,27 @@ socket.on("connect", function() {
                 return false;
             }
         })
-        .then( function(resp) {
+        .then( function(respData) {
 
             
-            if(resp) {
+            if(respData) {
+                
+                var resp = respData.build;
+                console.log("STATUS", JSON.stringify( respData.status) );
+                
+                // ? should we be updating this or is this just one-time info
+                me._channelStatus = respData.status;
+                /*
+                // has channel + fork information included
+                {   "fromJournalLine":1,
+                    "version":1,
+                    "journalLine":1,
+                    "channelId":"my/channel/myFork",
+                    "fromVersion":2,
+                    "from":"my/channel",
+                    "to":"my/channel/myFork",
+                    "name":"test of fork","utc":14839287897}
+                */
                 
                 // The build tree is here now...
                 // Should you transform the objects to other namespaces...?
@@ -1405,6 +1529,19 @@ socket.on("connect", function() {
                     });
                     list = resp.pop();
                 }                
+                
+                // the state management
+                me._clientState = {
+                    data : chData,              // The channel data object
+                    client : me,                // The channel client object (for Namespace conversion )
+                    needsRefresh : false,       // true if client is out of sync and needs to reload
+                    version : me._channelStatus.version,               
+                    last_update : [0, chData.getJournalLine()],  // last succesfull server update
+                    last_sent : []              // last range sent to the server
+                
+                };
+                me._policy = _chPolicy();
+                                
                 me._data = chData;
                 me._createTransaction();
                 me.resolve({ result : true, channelId : channelId });
@@ -1779,7 +1916,10 @@ return nextCmd;
 
 
 ```javascript
+if(!ns) ns = this._ns;
+
 if(obj && obj.__id) {
+    if(obj.__p) obj.__p = this._idFromNs( obj.__p, ns );
     obj.__id = this._idFromNs( obj.__id, ns );
     for(var n in obj.data) {
         if(obj.data.hasOwnProperty(n)) {
@@ -1795,7 +1935,7 @@ return obj;
 
 
 ```javascript
-
+if(!ns) ns = this._ns;
 if(obj && obj.__id) {
     
     // the old way, currently the socket ID may be the same, but not used right now

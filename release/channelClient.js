@@ -898,7 +898,10 @@
          * @param float ns
          */
         _myTrait_._transformObjFromNs = function (obj, ns) {
+          if (!ns) ns = this._ns;
+
           if (obj && obj.__id) {
+            if (obj.__p) obj.__p = this._idFromNs(obj.__p, ns);
             obj.__id = this._idFromNs(obj.__id, ns);
             for (var n in obj.data) {
               if (obj.data.hasOwnProperty(n)) {
@@ -914,7 +917,7 @@
          * @param float ns
          */
         _myTrait_._transformObjToNs = function (obj, ns) {
-
+          if (!ns) ns = this._ns;
           if (obj && obj.__id) {
 
             // the old way, currently the socket ID may be the same, but not used right now
@@ -1282,6 +1285,68 @@
         };
 
         /**
+         * @param float name
+         * @param float description
+         * @param float options
+         */
+        _myTrait_.fork = function (name, description, options) {
+          /*
+          {
+          version : 1,
+          name : "Initial version",
+          utc : (new Date()).getTime(),
+          journalLine : 0,
+          channelId : "my/channel/fork1/"
+          }
+          */
+          // me._channelStatus = respData.status;
+          /*
+          // has channel + fork information included
+          {   "fromJournalLine":1,
+          "version":1,
+          "journalLine":1,
+          "channelId":"my/channel/myFork",
+          "fromVersion":2,
+          "from":"my/channel",
+          "to":"my/channel/myFork",
+          "name":"test of fork","utc":14839287897}
+          */
+
+          if (this._isLocal) return;
+
+          // ==> OK, ready to send data forward...
+
+          // What is the journal line we are using for the fork???
+          var forkCmd = {
+            version: this._channelStatus.version,
+            channelId: name,
+            name: description,
+            journalLine: 1
+          };
+          /*
+          me._clientState = {
+          data : chData,              // The channel data object
+          client : me,                // The channel client object (for Namespace conversion )
+          needsRefresh : false,       // true if client is out of sync and needs to reload
+          version : me._channelStatus.version,               
+          last_update : [0, chData.getJournalLine()],  // last succesfull server update
+          last_sent : []              // last range sent to the server
+          };
+          */
+          // <= we must be using the last serverupdate, and maybe add the extra lines to the
+          // additional fork information to create a truly dynamic fork of the subject in case
+          // some other client is "resisting" the update...
+          forkCmd.journalLine = this._clientState.last_update[1];
+
+          // the fork is being processed, the response is going to be ready after the promise completes
+          this._socket.send("channelCommand", {
+            channelId: this._channelId,
+            cmd: "fork",
+            data: forkCmd
+          }).then(function (resp) {});
+        };
+
+        /**
          * @param string id
          * @param float name
          */
@@ -1332,6 +1397,7 @@
             this._channelId = channelId;
             this._options = options;
             this._socketGUID = this.guid();
+            this._isLocal = true;
 
             this._socket = _clientSocket(this._socketGUID, 1);
             var myNamespace = this._socket.getEnum();
@@ -1406,9 +1472,26 @@
                 } else {
                   return false;
                 }
-              }).then(function (resp) {
+              }).then(function (respData) {
 
-                if (resp) {
+                if (respData) {
+
+                  var resp = respData.build;
+                  console.log("STATUS", JSON.stringify(respData.status));
+
+                  // ? should we be updating this or is this just one-time info
+                  me._channelStatus = respData.status;
+                  /*
+                  // has channel + fork information included
+                  {   "fromJournalLine":1,
+                  "version":1,
+                  "journalLine":1,
+                  "channelId":"my/channel/myFork",
+                  "fromVersion":2,
+                  "from":"my/channel",
+                  "to":"my/channel/myFork",
+                  "name":"test of fork","utc":14839287897}
+                  */
 
                   // The build tree is here now...
                   // Should you transform the objects to other namespaces...?
@@ -1435,7 +1518,7 @@
                     data: chData, // The channel data object
                     client: me, // The channel client object (for Namespace conversion )
                     needsRefresh: false, // true if client is out of sync and needs to reload
-                    version: 1, // TODO: What is the version?
+                    version: me._channelStatus.version,
                     last_update: [0, chData.getJournalLine()], // last succesfull server update
                     last_sent: [] // last range sent to the server
 
@@ -1766,3 +1849,7 @@ socket.send("channelCommand", {
   });
 me._createTransaction();
 */
+
+// information from the server.
+// build new channel object
+// return it as the promise...
