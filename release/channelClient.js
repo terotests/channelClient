@@ -1339,11 +1339,20 @@
           forkCmd.journalLine = this._clientState.last_update[1];
 
           // the fork is being processed, the response is going to be ready after the promise completes
-          this._socket.send("channelCommand", {
-            channelId: this._channelId,
-            cmd: "fork",
-            data: forkCmd
-          }).then(function (resp) {});
+          var me = this;
+
+          return _promise(function (results) {
+            me._socket.send("channelCommand", {
+              channelId: me._channelId,
+              cmd: "fork",
+              data: forkCmd
+            }).then(function (resp) {
+              // information from the server.
+              // build new channel object
+              // return it as the promise...
+              results(resp);
+            });
+          });
         };
 
         /**
@@ -1849,7 +1858,3 @@ socket.send("channelCommand", {
   });
 me._createTransaction();
 */
-
-// information from the server.
-// build new channel object
-// return it as the promise...
