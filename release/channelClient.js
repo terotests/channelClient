@@ -1063,9 +1063,9 @@
               channelId = this._channelId;
 
           socket.on("s2c_" + this._channelId, function (cmd) {
-            // me._policy 
-            console.log("Got " + "s2c_" + me._channelId);
-            console.log(JSON.stringify(cmd));
+
+            // just don't accept any msgs
+            if (me._disconnected) return;
 
             if (cmd) {
               var res = me._policy.deltaServerToClient(cmd, me._clientState);
@@ -1222,6 +1222,7 @@
           later().onFrame(function () {
 
             if (!me._policy) return;
+            if (me._disconnected) return; // in case disconnected, don't send data
 
             var packet = me._policy.constructClientToServer(me._clientState);
             if (packet) {
@@ -1241,8 +1242,9 @@
         /**
          * Add command to next change frame to be sent over the network. TODO: validate the commands against the own channelObject, for example the previous value etc.
          * @param Array cmd
+         * @param float dontBroadcast
          */
-        _myTrait_.addCommand = function (cmd) {
+        _myTrait_.addCommand = function (cmd, dontBroadcast) {
           /*
           data : {
             id   : "t2",                   // unique ID for transaction
@@ -1261,14 +1263,14 @@
             var cmdOut = this._transformCmdFromNs(cmd, this._ns);
             var cmdIn = this._transformCmdToNs(cmd, this._ns);
             // the local command is run immediately and if it passes then we add it to the frame
-            if (this._data.execCmd(cmdIn)) {
+            if (this._data.execCmd(cmdIn, dontBroadcast)) {
               this._currentFrame.commands.push(cmdOut);
             }
           } else {
             // local command, no frame to add commands.
             var cmdIn = this._transformCmdToNs(cmd, this._ns);
             // the local command is run immediately and if it passes then we add it to the frame
-            if (this._data.execCmd(cmdIn)) {}
+            if (this._data.execCmd(cmdIn, dontBroadcast)) {}
           }
         };
 
@@ -1282,6 +1284,14 @@
           if (obj) {
             return obj.data[index];
           }
+        };
+
+        /**
+         * @param float t
+         */
+        _myTrait_.disconnect = function (t) {
+          this._disconnected = true;
+          return this;
         };
 
         /**
@@ -1618,6 +1628,14 @@
               }
             }
           }
+        };
+
+        /**
+         * @param float t
+         */
+        _myTrait_.reconnect = function (t) {
+          this._disconnected = false;
+          return this;
         };
 
         /**

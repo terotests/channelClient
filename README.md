@@ -139,6 +139,7 @@ The client module for the channels
 - [_onFrameLoop](README.md#channelClient__onFrameLoop)
 - [addCommand](README.md#channelClient_addCommand)
 - [at](README.md#channelClient_at)
+- [disconnect](README.md#channelClient_disconnect)
 - [fork](README.md#channelClient_fork)
 - [get](README.md#channelClient_get)
 - [getChannelData](README.md#channelClient_getChannelData)
@@ -148,6 +149,7 @@ The client module for the channels
 - [moveDown](README.md#channelClient_moveDown)
 - [moveTo](README.md#channelClient_moveTo)
 - [moveUp](README.md#channelClient_moveUp)
+- [reconnect](README.md#channelClient_reconnect)
 - [redo](README.md#channelClient_redo)
 - [remove](README.md#channelClient_remove)
 - [set](README.md#channelClient_set)
@@ -980,9 +982,9 @@ var me = this,
 
 
 socket.on("s2c_"+this._channelId, function(cmd) {
-   // me._policy  
-    console.log("Got "+"s2c_"+me._channelId);
-    console.log(JSON.stringify( cmd) );
+
+   // just don't accept any msgs 
+   if(me._disconnected) return;
     
    if(cmd) {
        var res = me._policy.deltaServerToClient( cmd, me._clientState);
@@ -1157,6 +1159,7 @@ var me = this,
 later().onFrame(  function() {
     
     if(!me._policy) return;
+    if(me._disconnected) return;    // in case disconnected, don't send data
     
     var packet = me._policy.constructClientToServer( me._clientState );
     if(packet) {
@@ -1241,7 +1244,7 @@ later().onFrame(  function() {
 })
 ```
 
-### <a name="channelClient_addCommand"></a>channelClient::addCommand(cmd)
+### <a name="channelClient_addCommand"></a>channelClient::addCommand(cmd, dontBroadcast)
 
 Add command to next change frame to be sent over the network. TODO: validate the commands against the own channelObject, for example the previous value etc.
 ```javascript
@@ -1263,7 +1266,7 @@ if(this._currentFrame) {
     var cmdOut = this._transformCmdFromNs(cmd, this._ns);
     var cmdIn  = this._transformCmdToNs(cmd, this._ns);
     // the local command is run immediately and if it passes then we add it to the frame
-    if( this._data.execCmd(cmdIn)  ) {
+    if( this._data.execCmd(cmdIn, dontBroadcast)  ) {
         this._currentFrame.commands.push( cmdOut );        
     }
 
@@ -1271,7 +1274,7 @@ if(this._currentFrame) {
     // local command, no frame to add commands.
     var cmdIn  = this._transformCmdToNs(cmd, this._ns);
     // the local command is run immediately and if it passes then we add it to the frame
-    if( this._data.execCmd(cmdIn)  ) {
+    if( this._data.execCmd(cmdIn, dontBroadcast)  ) {
         
     }    
 }
@@ -1286,6 +1289,14 @@ var obj = this._data._find( ns_id );
 if(obj) {
     return obj.data[index];
 }
+```
+
+### <a name="channelClient_disconnect"></a>channelClient::disconnect(t)
+
+
+```javascript
+this._disconnected = true;
+return this;
 ```
 
 ### <a name="channelClient_fork"></a>channelClient::fork(name, description, options)
@@ -1638,6 +1649,14 @@ if(obj) {
     }
 }
 
+```
+
+### <a name="channelClient_reconnect"></a>channelClient::reconnect(t)
+
+
+```javascript
+this._disconnected = false;
+return this;
 ```
 
 ### <a name="channelClient_redo"></a>channelClient::redo(cnt)
