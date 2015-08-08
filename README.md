@@ -138,6 +138,7 @@ The client module for the channels
 - [_incoming](README.md#channelClient__incoming)
 - [_onFrameLoop](README.md#channelClient__onFrameLoop)
 - [addCommand](README.md#channelClient_addCommand)
+- [askUpgrade](README.md#channelClient_askUpgrade)
 - [at](README.md#channelClient_at)
 - [disconnect](README.md#channelClient_disconnect)
 - [fork](README.md#channelClient_fork)
@@ -156,6 +157,7 @@ The client module for the channels
 - [setObject](README.md#channelClient_setObject)
 - [undo](README.md#channelClient_undo)
 - [unset](README.md#channelClient_unset)
+- [upgradeVersion](README.md#channelClient_upgradeVersion)
 
 
 
@@ -980,12 +982,118 @@ This is the beef of almost everything, when a new frame comes around, what to do
 var me = this,
     channelId = this._channelId;
 
+socket.on("upgrade_"+this._channelId, function(cmd) {
+
+   me._upgradePending = false;
+   // just don't accept any msgs 
+   if(me._disconnected) return;
+
+   if(cmd) {
+
+       if(cmd.partial) {
+           
+           // should be reversing perhaps first to some line...
+           var dd = me._clientState.data;
+
+           dd.reverseToLine(cmd.partialFrom);
+           console.log("--- refreshing the partials, reversed to line --- ", cmd.partialFrom);
+           var errCnt=0;
+           cmd.partial.forEach( function(c) {
+               if(errCnt > 0 ) return;
+               var r;
+               var cmdIn  = me._transformCmdToNs(c);
+               if(! ((r=dd.execCmd(cmdIn,true))===true ) ) {
+                   console.error("Partial ", r);
+                   errCnt++;
+               }
+           });
+
+           if(errCnt==0) {
+               me._clientState.needsRefresh = false;
+               me._clientState.needsFullRefresh = false;
+               
+               dd._journal.length = cmd.partialEnds;
+               
+               // The correct position 
+               me._clientState.last_update[0] = 0;
+               me._clientState.last_update[1] = dd._journal.length;
+               me._clientState.last_sent[0] = 0;
+               me._clientState.last_sent[1] = dd._journal.length;               
+           } else {
+               me._clientState.needsFullRefresh = true;
+           }
+           
+       }
+       if(cmd.data) {
+           
+           // full upgrade coming here, must also replace the journal
+           
+           var myData = me._clientState.data.getData(); // <- the data
+           me._transformObjToNs(cmd.data);
+           
+           var diff = diffEngine().compareFiles(myData, cmd.data );
+           console.log("The diff ", JSON.stringify(diff));
+           // run the commands for the local data
+           var dd = me._clientState.data;
+           var errCnt = 0;
+           diff.cmds.forEach(function(c) {
+               console.log("Diff cmd ", c);
+               if(errCnt > 0 ) return;
+               var r;
+               /// dd.execCmd(c, true); // the point is just to change the data to something else
+               if(! ((r=dd.execCmd(c,true))===true ) ) {
+                   console.error("Full error ", r);
+                   errCnt++;
+               }               
+           });
+           
+           // and now the hard part, upgrade the local client data.
+           if(errCnt==0) {
+               
+               me._clientState.needsRefresh = false;
+               me._clientState.needsFullRefresh = false;               
+               
+               console.log("** full update should have gone ok ** ");
+               dd._journal.length = 0;
+               dd._journal.push.apply(dd._journal, cmd.journal);
+               me._clientState.needsRefresh = false;
+               me._clientState.version = cmd.version;
+               
+               // dd._journal.length = cmd.updateEnds;
+               
+               me._clientState.last_update[0] = 0;
+               me._clientState.last_update[1] = dd._journal.length;
+               me._clientState.last_sent[0] = 0;
+               me._clientState.last_sent[1] = dd._journal.length;    
+               
+               console.log("Version ", me._clientState.version);
+               
+           } else {
+               console.error("** errors with the full update ** ");
+               me._clientState.needsFullRefresh = true;
+               // TODO: might be unresolvable error here, if too many 
+               // re-connections or refreshes appear
+           }
+/*
+                // the state management
+                me._clientState = {
+                    data : chData,              // The channel data object
+                    client : me,                // The channel client object (for Namespace conversion )
+                    needsRefresh : false,       // true if client is out of sync and needs to reload
+                    version : me._channelStatus.version,               
+                    last_update : [0, chData.getJournalLine()],  // last succesfull server update
+                    last_sent : [0, chData.getJournalLine()]     // last range sent to the server
+                
+                };
+*/
+       }       
+   }
+});
 
 socket.on("s2c_"+this._channelId, function(cmd) {
 
    // just don't accept any msgs 
    if(me._disconnected) return;
-    
    if(cmd) {
        var res = me._policy.deltaServerToClient( cmd, me._clientState);
    }
@@ -1155,93 +1263,51 @@ socket.on("frame_"+channelId, function(cmd) {
 
 var me = this,
     channelId = this._channelId;
-
-later().onFrame(  function() {
+    
+var _frameFn = function() {
     
     if(!me._policy) return;
     if(me._disconnected) return;    // in case disconnected, don't send data
     
+    if(me._clientState.needsRefresh) {
+        // *** if refresh is required, out of sync client **
+        
+        if(!me._upgradePending) {
+            console.log(" needsRefresh && !_upgradePending " );
+            me.askUpgrade(me._clientState.needsFullRefresh);
+        }
+        me._upgradePending = true;
+    }
+    
     var packet = me._policy.constructClientToServer( me._clientState );
     if(packet) {
-        // debugger;
-    
+
+            //console.log("Sending packet to server ");
+            //console.log(packet);
             socket.send("channelCommand", {
                         channelId : channelId,
                         cmd : "c2s",
                         data : packet
-                }).then( function() {
-                    
-                })    
-    }
-    
-    if(me._currentFrame && me._currentFrame.commands.length ) {
-        
-        // Then, send the data to server 
-        
-
-        
-        /*
-        var sent = me._currentFrame;
-        me._pendingFrames.push( me._currentFrame );
-        //console.log("--- about to send ----");
-        //console.log(JSON.stringify(me._currentFrame )); 
-        // TODO: how to resolve the change conflicts here...
-        socket.send("channelCommand", {
-                        channelId : channelId,
-                        cmd : "changeFrame",
-                        data : me._currentFrame
-                }).then( function(resp) {
-                    
-                    console.log("Command response "+socket.getEnum());
-                    console.log(JSON.stringify( sent ) );
-                    console.log(JSON.stringify( resp ) );
-                    
-                    var i = me._pendingFrames.indexOf( sent );
-                    me._pendingFrames.splice(i,1);                    
-                    if(resp.result) {
-                            console.log("---- ok ---- ");
-                            //console.log(JSON.stringify(sent)); 
-
-                        if(resp.correctLines && resp.correctLines.length) {
-                            
-                            var first = resp.correctStart;
-                            console.log("---- rolling back JUST IN CASE ---- ");
-                            me._data.reverseToLine( first );
-                            
-                            resp.correctLines.forEach( function(c) {
-//                                 me._data.execCmd(c);
-                                me._data.execCmd(me._transformCmdToNs(c, me._ns) );
-                            })
-                            
-                        }
-                                                     
-                            
-                    } else {
-                        //  var frame = resp.data;
-                        // check if we need to rollback changes
-                        if(resp.correctLines && resp.correctLines.length) {
-                            
-                            var first = resp.correctStart;
-                            console.log("---- rolling back ---- ");
-                            me._data.reverseToLine( first );
-                            
-                            resp.correctLines.forEach( function(c) {
-//                                 me._data.execCmd(c);
-                                me._data.execCmd(me._transformCmdToNs(c, me._ns) );
-                            })
-                            
-                            me._createTransaction();
-                        } else {
-                            console.log("---- failed, but no rollback ---- ");
-                            //console.log(JSON.stringify(sent));                            
+                }).then( function(res) {
+                    if(res && res.errors) {
+                        // console.error(res.errors);
+                        if(res.errors.length>0) {
+                            var bRefresh = false;
+                            res.errors.forEach(function(err) {
+                                if(err.error==44) {
+                                    bRefresh = true;
+                                } 
+                            });
+                            if(bRefresh) {
+                                me._clientState.needsRefresh = true;
+                            }
                         }
                     }
-                });
-        me._createTransaction();
-        */
-    
+                })    
     }
-})
+};
+later().onFrame( _frameFn  );
+
 ```
 
 ### <a name="channelClient_addCommand"></a>channelClient::addCommand(cmd, dontBroadcast)
@@ -1278,6 +1344,26 @@ if(this._currentFrame) {
         
     }    
 }
+```
+
+### <a name="channelClient_askUpgrade"></a>channelClient::askUpgrade(askFull)
+
+
+```javascript
+
+if(!this._socket) return;
+
+this._socket.send("channelCommand", {
+            channelId : this._channelId,
+            cmd : "upgradeRequest",
+            data : {
+                version : this._clientState.version,
+                last_update :  this._clientState.last_update,
+                askFull : askFull
+            }
+    }).then( function() {
+        
+    }) 
 ```
 
 ### <a name="channelClient_at"></a>channelClient::at(id, index)
@@ -1425,6 +1511,8 @@ return -1;
 
 ```javascript
 
+console.log("channelClient init starts");
+
 if(options && options.localChannel) {
     
     this._channelId = channelId;
@@ -1470,8 +1558,15 @@ var me = this;
 this._onFrameLoop( socket, myNamespace );
 this._incoming(socket, myNamespace);
 
+console.log("channelClient init");
+
+this._connCnt = 0;
+
 socket.on("connect", function() {
     
+    console.log("Socket sent connected");
+    
+    me._connCnt++;
     
     // Authenticate...
     if(options.auth) {
@@ -1484,6 +1579,7 @@ socket.on("connect", function() {
                 me._userId = resp.userId;
                 me._logged = true;
             } else {
+                me._logged = false;
                 return false;
             }
             // ask to join the channel with this socket...
@@ -1498,6 +1594,15 @@ socket.on("connect", function() {
                 me._connected = true;
                 // The next step: to load the channel information for the
                 // local objects to consume
+                
+                if(me._connCnt > 1) {
+                    
+                    // do not start again..
+                    console.log("Already connected, asking upgrade");
+                    me.askUpgrade();
+                    
+                    return false;
+                }
 
                 return socket.send("channelCommand", {
                             channelId : channelId,
@@ -1542,11 +1647,13 @@ socket.on("connect", function() {
                 var chData = _channelData( me._id, mainData, [] );
                 var list = resp.pop();
 
+                // should be updating the client
+                // var res = me._policy.deltaServerToClient( cmd, me._clientState);
                 while(list) {
                     chData._journalPointer = 0;
                     chData._journal.length = 0; // <-- the journal length, last will be spared
                     list.forEach( function(c) {
-                        chData.execCmd(me._transformCmdToNs(c, myNamespace));
+                        chData.execCmd(me._transformCmdToNs(c, myNamespace), true);
                     });
                     list = resp.pop();
                 }                
@@ -1558,7 +1665,7 @@ socket.on("connect", function() {
                     needsRefresh : false,       // true if client is out of sync and needs to reload
                     version : me._channelStatus.version,               
                     last_update : [0, chData.getJournalLine()],  // last succesfull server update
-                    last_sent : []              // last range sent to the server
+                    last_sent : [0, chData.getJournalLine()]     // last range sent to the server
                 
                 };
                 me._policy = _chPolicy();
@@ -1743,6 +1850,21 @@ if(obj) {
     }
 }
 
+```
+
+### <a name="channelClient_upgradeVersion"></a>channelClient::upgradeVersion(t)
+
+
+```javascript
+
+// should start the snapshot command
+this._socket.send("channelCommand", {
+            channelId : this._channelId,
+            cmd : "snapshot",
+            data : {}
+    }).then( function() {
+        
+    })   
 ```
 
 
